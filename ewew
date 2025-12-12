@@ -1,0 +1,349 @@
+// pages/_app.js
+import '../styles/globals.css'
+
+export default function MyApp({ Component, pageProps }) {
+  return <Component {...pageProps} />
+}
+
+// hooks/useLocalStorage.js
+import { useState, useEffect } from 'react';
+
+export default function useLocalStorage(key, initialValue) {
+  const [value, setValue] = useState(() => {
+    try {
+      const raw = typeof window !== 'undefined' ? localStorage.getItem(key) : null;
+      return raw ? JSON.parse(raw) : initialValue;
+    } catch {
+      return initialValue;
+    }
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(key, JSON.stringify(value));
+    } catch {}
+  }, [key, value]);
+
+  return [value, setValue];
+}
+
+// components/NewTodo.jsx
+import { useState } from 'react';
+
+export default function NewTodo({ onAdd }) {
+  const [text, setText] = useState('');
+  const [priority, setPriority] = useState('medium');
+
+  function handleAdd(e) {
+    e.preventDefault();
+    const trimmed = text.trim();
+    if (!trimmed) return;
+    onAdd({ text: trimmed, priority });
+    setText('');
+    setPriority('medium');
+  }
+
+  return (
+    <form className="new-todo" onSubmit={handleAdd}>
+      <input
+        className="input"
+        value={text}
+        onChange={e => setText(e.target.value)}
+        placeholder="Add a task..."
+        aria-label="Add a task"
+      />
+      <select
+        className="select"
+        value={priority}
+        onChange={e => setPriority(e.target.value)}
+        aria-label="Priority"
+      >
+        <option value="low">Low</option>
+        <option value="medium">Medium</option>
+        <option value="high">High</option>
+      </select>
+      <button type="submit" className="btn">Add</button>
+    </form>
+  );
+}
+
+// components/TodoItem.jsx
+import { useState } from 'react';
+
+const priorityClass = {
+  low: 'p-low',
+  medium: 'p-medium',
+  high: 'p-high',
+};
+
+export default function TodoItem({ todo, onToggle, onDelete, onUpdate }) {
+  const [editing, setEditing] = useState(false);
+  const [draftText, setDraftText] = useState(todo.text);
+  const [draftPriority, setDraftPriority] = useState(todo.priority);
+
+  function saveEdit() {
+    const text = draftText.trim();
+    if (!text) return;
+    onUpdate({ ...todo, text, priority: draftPriority });
+    setEditing(false);
+  }
+
+  return (
+    <li className={`todo-item ${priorityClass[todo.priority]}`}>
+      <div className="left">
+        <input
+          id={`cb-${todo.id}`}
+          type="checkbox"
+          checked={!!todo.completed}
+          onChange={() => onToggle(todo.id)}
+          aria-label={`Toggle ${todo.text}`}
+        />
+        {!editing ? (
+          <label htmlFor={`cb-${todo.id}`} className={`title ${todo.completed ? 'done' : ''}`}>
+            <div className="text">{todo.text}</div>
+            <div className="meta">{todo.priority}</div>
+          </label>
+        ) : (
+          <div className="edit">
+            <input
+              value={draftText}
+              onChange={e => setDraftText(e.target.value)}
+              className="edit-input"
+            />
+            <select
+              value={draftPriority}
+              onChange={e => setDraftPriority(e.target.value)}
+              className="edit-select"
+            >
+              <option value="low">Low</option>
+              <option value="medium">Medium</option>
+              <option value="high">High</option>
+            </select>
+          </div>
+        )}
+      </div>
+
+      <div className="actions">
+        {!editing ? (
+          <>
+            <button className="icon-btn" onClick={() => { setEditing(true); setDraftText(todo.text); }}>
+              Edit
+            </button>
+            <button className="icon-btn danger" onClick={() => onDelete(todo.id)}>Delete</button>
+          </>
+        ) : (
+          <>
+            <button className="icon-btn" onClick={saveEdit}>Save</button>
+            <button className="icon-btn" onClick={() => setEditing(false)}>Cancel</button>
+          </>
+        )}
+      </div>
+    </li>
+  );
+}
+
+// components/TodoList.jsx
+import TodoItem from './TodoItem';
+import { useMemo, useState } from 'react';
+
+export default function TodoList({ todos, setTodos }) {
+  const [filter, setFilter] = useState('all');
+  const [sortBy, setSortBy] = useState('newest');
+
+  function addTodo(todo) {
+    const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+    setTodos(prev => [{ id, text: todo.text, priority: todo.priority, completed: false, createdAt: Date.now() }, ...prev]);
+  }
+
+  function toggle(id) {
+    setTodos(prev => prev.map(t => t.id === id ? { ...t, completed: !t.completed } : t));
+  }
+
+  function remove(id) {
+    setTodos(prev => prev.filter(t => t.id !== id));
+  }
+
+  function updateTodo(updated) {
+    setTodos(prev => prev.map(t => (t.id === updated.id ? updated : t)));
+  }
+
+  function clearCompleted() {
+    setTodos(prev => prev.filter(t => !t.completed));
+  }
+
+  const filtered = useMemo(() => {
+    let list = todos.slice();
+    if (filter === 'active') list = list.filter(t => !t.completed);
+    if (filter === 'completed') list = list.filter(t => t.completed);
+
+    if (sortBy === 'newest') list.sort((a, b) => b.createdAt - a.createdAt);
+    if (sortBy === 'oldest') list.sort((a, b) => a.createdAt - b.createdAt);
+    if (sortBy === 'priority') {
+      const rank = { high: 0, medium: 1, low: 2 };
+      list.sort((a, b) => (rank[a.priority] - rank[b.priority]) || (b.createdAt - a.createdAt));
+    }
+    return list;
+  }, [todos, filter, sortBy]);
+
+  return (
+    <section className="todo-section">
+      <div className="controls">
+        <div className="filters">
+          <button className={filter === 'all' ? 'active' : ''} onClick={() => setFilter('all')}>All</button>
+          <button className={filter === 'active' ? 'active' : ''} onClick={() => setFilter('active')}>Active</button>
+          <button className={filter === 'completed' ? 'active' : ''} onClick={() => setFilter('completed')}>Completed</button>
+        </div>
+
+        <div className="misc">
+          <select value={sortBy} onChange={e => setSortBy(e.target.value)} aria-label="Sort tasks">
+            <option value="newest">Newest</option>
+            <option value="oldest">Oldest</option>
+            <option value="priority">Priority</option>
+          </select>
+          <button className="btn small" onClick={clearCompleted}>Clear completed</button>
+        </div>
+      </div>
+
+      <ul className="todo-list">
+        {filtered.length === 0 && <li className="empty">No tasks</li>}
+        {filtered.map(todo => (
+          <TodoItem
+            key={todo.id}
+            todo={todo}
+            onToggle={toggle}
+            onDelete={remove}
+            onUpdate={updateTodo}
+          />
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+// pages/index.js
+import { useEffect } from 'react';
+import useLocalStorage from '../hooks/useLocalStorage';
+import NewTodo from '../components/NewTodo';
+import TodoList from '../components/TodoList';
+
+export default function Home() {
+  const [todos, setTodos] = useLocalStorage('todos_v1', [
+    { id: 'a1', text: 'Welcome! Edit or add a task', priority: 'medium', completed: false, createdAt: Date.now() - 100000 },
+    { id: 'a2', text: 'Try the priority selector', priority: 'high', completed: false, createdAt: Date.now() - 90000 },
+    { id: 'a3', text: 'This one is completed', priority: 'low', completed: true, createdAt: Date.now() - 80000 },
+  ]);
+
+  useEffect(() => {
+    // simple migration / ensure createdAt exists
+    setTodos(prev => prev.map(t => t.createdAt ? t : { ...t, createdAt: Date.now() }));
+  }, []);
+
+  return (
+    <div className="page">
+      <main className="card">
+        <header className="header">
+          <h1>Colorful To-Do (Next.js)</h1>
+          <p className="subtitle">Interactive demo with localStorage persistence</p>
+        </header>
+
+        <NewTodo onAdd={(payload) => {
+          const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+          setTodos(prev => [{ id, text: payload.text, priority: payload.priority, completed: false, createdAt: Date.now() }, ...prev]);
+        }} />
+
+        <TodoList todos={todos} setTodos={setTodos} />
+
+      </main>
+
+      <footer className="footer">Built with Next.js — localStorage persistence (no server)</footer>
+    </div>
+  );
+}
+
+/* styles/globals.css - minimal colorful styles */
+:root{
+  --bg1: linear-gradient(135deg,#ffdde1 0%,#ee9ca7 100%);
+  --card: #ffffff;
+  --muted: #6b7280;
+  --accent: #6366f1;
+  --accent-2: #06b6d4;
+  --radius: 12px;
+}
+
+*{box-sizing:border-box}
+html,body,#__next{height:100%}
+body{
+  margin:0;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+  background: var(--bg1);
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  padding:32px;
+  color:#0f172a;
+}
+
+.page{width:100%;max-width:900px;padding:12px}
+.card{
+  background:var(--card);
+  border-radius:var(--radius);
+  box-shadow: 0 10px 30px rgba(2,6,23,0.12);
+  padding:22px;
+}
+
+.header h1{margin:0;font-size:20px;color:var(--accent)}
+.header .subtitle{margin:0;color:var(--muted);font-size:13px}
+
+.new-todo{
+  display:flex;gap:10px;margin-top:16px;margin-bottom:18px;
+}
+.input{
+  flex:1;padding:10px 12px;border-radius:10px;border:1px solid rgba(15,23,42,0.06);outline:none;font-size:14px;
+}
+.select{padding:10px;border-radius:10px;border:1px solid rgba(15,23,42,0.06);background:#fff;}
+.btn{
+  background:linear-gradient(135deg,var(--accent),var(--accent-2));
+  color:white;border:0;padding:10px 12px;border-radius:10px;cursor:pointer;font-weight:600;
+}
+.btn.small{padding:8px 10px;font-size:13px;border-radius:8px}
+
+.todo-section{margin-top:6px}
+.controls{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}
+.filters button{
+  border:0;background:transparent;padding:6px 10px;border-radius:8px;cursor:pointer;
+}
+.filters button.active{background:rgba(99,102,241,0.12);color:var(--accent)}
+
+.todo-list{list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:10px}
+.empty{color:var(--muted);padding:10px;border-radius:8px;background:#fbfbfb}
+
+.todo-item{
+  display:flex;align-items:center;justify-content:space-between;padding:12px;border-radius:10px;border:1px solid rgba(2,6,23,0.04);
+}
+.todo-item .left{display:flex;align-items:center;gap:10px}
+.todo-item input[type="checkbox"]{width:18px;height:18px}
+
+.title{display:flex;flex-direction:column;cursor:pointer}
+.title .text{font-size:15px}
+.title .meta{font-size:12px;color:var(--muted);text-transform:capitalize}
+.done .text{opacity:0.6;text-decoration:line-through}
+
+.actions{display:flex;gap:8px;align-items:center}
+.icon-btn{
+  background:transparent;border:0;cursor:pointer;padding:6px 8px;border-radius:8px;
+}
+.icon-btn.danger{color:#ef4444}
+.edit{display:flex;gap:8px;align-items:center}
+.edit-input{padding:8px;border-radius:8px;border:1px solid rgba(15,23,42,0.06)}
+.edit-select{padding:8px;border-radius:8px;border:1px solid rgba(15,23,42,0.06)}
+
+/* priority indicators */
+.p-low{border-left:6px solid #10b981}
+.p-medium{border-left:6px solid #f59e0b}
+.p-high{border-left:6px solid #ef4444}
+
+.footer{margin-top:14px;color:var(--muted);font-size:13px;text-align:center}
+@media (max-width:640px){
+  .card{padding:16px}
+  .input{font-size:14px}
+}
